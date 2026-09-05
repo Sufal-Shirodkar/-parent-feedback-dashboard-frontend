@@ -104,9 +104,11 @@ export function AuthProvider({ children }) {
     }
 
     const tokenResult = await auth.currentUser.getIdTokenResult();
-    const profile =
-      identityRef.current ||
-      (await resolveIdentity(auth.currentUser, tokenResult.claims));
+    let profile = identityRef.current;
+
+    if (!profile?.role) {
+      profile = await resolveIdentity(auth.currentUser, tokenResult.claims);
+    }
 
     identityRef.current = profile;
 
