@@ -1,44 +1,32 @@
 import { ApiError } from "./client";
 
-const ROSTER_API_URL = (
-  import.meta.env.VITE_ROSTER_API_URL ||
-  (import.meta.env.DEV ? "/api/roster" : "https://contourcandidate.web.app/api/roster")
-).replace(/\/$/, "");
-const ROSTER_API_KEY = import.meta.env.VITE_ROSTER_API_KEY || "";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
 let staffCache = null;
 let staffRequest = null;
 
-function rosterUrl(page) {
-  const url = new URL(
-    ROSTER_API_URL,
-    typeof window === "undefined" ? "http://localhost" : window.location.origin
-  );
-  url.searchParams.set("page", String(page));
-  if (ROSTER_API_KEY) {
-    url.searchParams.set("api_key", ROSTER_API_KEY);
+function rosterUrl() {
+  if (!API_BASE_URL) {
+    throw new ApiError("Missing VITE_API_BASE_URL. Add it to your .env file.", 500);
   }
-  return url.toString();
+
+  return `${API_BASE_URL}/api/roster`;
 }
 
-async function fetchRosterPage(page) {
-  let response;
-
-  try {
-    response = await fetch(rosterUrl(page), {
-      headers: { Accept: "application/json" },
-    });
-  } catch {
-    throw new ApiError("Unable to reach the staff roster. Please try again.", 0);
+function rosterErrorMessage(payload, status) {
+  if (payload?.message) {
+    return payload.message;
   }
 
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new ApiError("Unable to load the staff roster.", response.status);
+  if (status === 401) {
+    return "Staff roster is not authorized.";
   }
 
-  return payload;
+  if (status === 429) {
+    return "Staff roster is temporarily rate limited. Please try again shortly.";
+  }
+
+  return "Unable to load the staff roster.";
 }
 
 export async function getRosterStaff() {
@@ -51,17 +39,23 @@ export async function getRosterStaff() {
   }
 
   staffRequest = (async () => {
-    const staff = [];
-    let page = 1;
-    let totalPages = 1;
+    let response;
 
-    while (page <= totalPages) {
-      const payload = await fetchRosterPage(page);
-      staff.push(...(payload?.staff || []));
-      totalPages = Number(payload?.total_pages) || page;
-      page += 1;
+    try {
+      response = await fetch(rosterUrl(), {
+        headers: { Accept: "application/json" },
+      });
+    } catch {
+      throw new ApiError("Unable to reach the staff roster. Please try again.", 0);
     }
 
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new ApiError(rosterErrorMessage(payload, response.status), response.status);
+    }
+
+    const staff = Array.isArray(payload?.staff) ? payload.staff : [];
     staffCache = staff;
     return staffCache;
   })().finally(() => {
